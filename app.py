@@ -4,7 +4,7 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 
 # --- CONFIGURATION (You will enter your API Key in the web interface) ---
-st.set_page_config(page_title="Young Adult Focus Group", page_icon="⛪")
+st.set_page_config(page_title="TRI Young Adult Focus Group", page_icon="⛪")
 
 # --- THE PERSONAS (Based on 12 Young Adult Interviews) ---
 PERSONAS = {
