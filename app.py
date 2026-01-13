@@ -6,7 +6,7 @@ from openai import OpenAI
 from pypdf import PdfReader
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Ambo Press Focus Group", page_icon="⛪", layout="wide")
+st.set_page_config(page_title="TRI Young Adult Focus Group", page_icon="⛪", layout="wide")
 
 # --- THE PERSONAS (SPECIFIC INTERVIEW PROFILES) ---
 PERSONAS = {
@@ -196,7 +196,7 @@ def run_focus_group(api_key, input_data, input_type, guidance=""):
 
 # --- THE APP INTERFACE ---
 
-st.title("⛪ Ambo Press Focus Group")
+st.title("⛪ Young Adult Focus Group")
 st.markdown("Test your book titles, sermon series, and flyers against **4 Synthetic Personas**.")
 
 # 1. API Key Check
