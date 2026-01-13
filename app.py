@@ -1,15 +1,15 @@
 import streamlit as st
 import numpy as np
 import base64
-import time  # <--- THIS IS THE NEW ADDITION
+import time
 from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 from pypdf import PdfReader
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="TRI YA Focus Group", page_icon="⛪")
+st.set_page_config(page_title="Ambo Press Focus Group", page_icon="⛪", layout="wide")
 
-# --- THE PERSONAS (Based on 12 Young Adult Interviews) ---
+# --- THE PERSONAS (Based on your 12 Interviews) ---
 PERSONAS = {
     "Anchored Traditionalist (The Alejandra/Felipe Profile)": (
         "I am a young adult who chose the Episcopal Church for 'Inclusive Orthodoxy.' "
@@ -50,23 +50,45 @@ ANCHORS = [
     "I love this. It speaks directly to my soul and needs."          # Score 5
 ]
 
+# --- HELPER FUNCTIONS ---
+
 def get_embedding(text, client):
-    """Get the vector embedding for a text string."""
-    response = client.embeddings.create(input=text, model="text-embedding-3-small")
-    return response.data[0].embedding
+    """Safe embedding wrapper with retry logic"""
+    try:
+        text = text.replace("\n", " ")
+        response = client.embeddings.create(input=[text], model="text-embedding-3-small")
+        return response.data[0].embedding
+    except Exception as e:
+        time.sleep(2) # Wait if error
+        try:
+            response = client.embeddings.create(input=[text], model="text-embedding-3-small")
+            return response.data[0].embedding
+        except:
+            return None # Return None if it fails twice
 
 def extract_text_from_pdf(uploaded_file):
-    pdf_reader = PdfReader(uploaded_file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
+    try:
+        pdf_reader = PdfReader(uploaded_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text()
+        return text
+    except:
+        return "Error reading PDF."
 
-def run_focus_group(api_key, input_data, input_type="text"):
+def run_focus_group(api_key, input_data, input_type, guidance=""):
     client = OpenAI(api_key=api_key)
     
-    # 1. Embed the Anchors (The Ruler)
-    anchor_embeddings = [get_embedding(a, client) for a in ANCHORS]
+    # 1. Embed the Anchors (BATCHED for safety)
+    try:
+        anchor_response = client.embeddings.create(
+            input=ANCHORS, 
+            model="text-embedding-3-small"
+        )
+        anchor_embeddings = [d.embedding for d in anchor_response.data]
+    except Exception as e:
+        st.error(f"Error connecting to OpenAI: {e}")
+        return {} 
     
     results = {}
     
@@ -82,16 +104,25 @@ def run_focus_group(api_key, input_data, input_type="text"):
         scores = []
         texts = [] 
         
-        # --- THE SCIENTIFIC LOOP (Reduced to 10 for safety) ---
-        ITERATIONS = 10  # Reduced from 30 to 10 to prevent crashing Tier 1 accounts
+        # --- THE SCIENTIFIC LOOP (10 Iterations) ---
+        ITERATIONS = 10 
         
         for i in range(ITERATIONS):
             
-            # Prepare the Prompt based on Input Type
+            # Construct Prompt with User Guidance
+            specific_instruction = f"Additional Instruction from Moderator: {guidance}" if guidance else ""
+            
             if input_type == "text":
                 prompt_content = f"""
                 You are this person: "{bio}"
-                Read this proposal from a church: "{input_data}"
+                
+                I am showing you a proposal/text from a church.
+                {specific_instruction}
+                
+                THE CONTENT:
+                "{input_data}"
+                
+                TASK:
                 Write 2-3 sentences about your honest, gut reaction. 
                 Don't be polite. Be real. How does this make you feel?
                 """
@@ -103,115 +134,4 @@ def run_focus_group(api_key, input_data, input_type="text"):
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": f"You are this person: {bio}. Look at this image from a church. Write 2-3 sentences about your honest, gut reaction. Don't be polite. Be real."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                        ]
-                    }
-                ]
-
-            # --- SAFETY BLOCK: Retry if Rate Limited ---
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    completion = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=messages
-                    )
-                    reaction_text = completion.choices[0].message.content
-                    break # Success! Exit the retry loop
-                except Exception as e:
-                    if attempt < max_retries - 1:
-                        time.sleep(2) # Wait 2 seconds before retrying
-                    else:
-                        reaction_text = "Error: Could not get response."
-            
-            # Score the Reaction
-            reaction_embedding = get_embedding(reaction_text, client)
-            similarities = cosine_similarity([reaction_embedding], anchor_embeddings)[0]
-            best_match_index = np.argmax(similarities)
-            score = best_match_index + 1
-            
-            scores.append(score)
-            texts.append(reaction_text)
-            
-            # --- PAUSE ---
-            # Sleep for 0.5 seconds between every single request to stay under the speed limit
-            time.sleep(0.5)
-        
-        avg_score = sum(scores) / len(scores)
-        results[name] = {"text": texts[0], "score": avg_score}
-        
-        current_step += 1
-        my_bar.progress(current_step / total_personas, text=f"Finished interviewing {name}...")
-        
-    my_bar.empty()
-    return results
-
-# --- THE APP INTERFACE ---
-st.title("⛪ TRI YA Focus Group")
-st.markdown("Test your book titles, sermon series, and flyers against **4 Synthetic Personas**.")
-
-# 1. API Key Check
-if "OPENAI_API_KEY" in st.secrets:
-    api_key = st.secrets["OPENAI_API_KEY"]
-else:
-    api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
-
-# 2. Input Method (Tabs)
-tab1, tab2 = st.tabs(["📝 Text Input", "Pg Upload File"])
-
-input_payload = None
-input_type = "text"
-
-with tab1:
-    text_input = st.text_area("Paste text to test:", height=150, placeholder="e.g., Book Title: 'The Holy Grind'")
-    if text_input:
-        input_payload = text_input
-        input_type = "text"
-
-with tab2:
-    uploaded_file = st.file_uploader("Upload an Image or PDF", type=['png', 'jpg', 'jpeg', 'pdf'])
-    if uploaded_file:
-        if uploaded_file.type == "application/pdf":
-            st.info("Extracting text from PDF...")
-            input_payload = extract_text_from_pdf(uploaded_file)
-            input_type = "text" # Treat extracted PDF content as text
-            st.success("PDF Text Extracted!")
-            with st.expander("View Extracted Text"):
-                st.write(input_payload[:500] + "...")
-        else:
-            input_payload = uploaded_file
-            input_type = "image"
-            st.image(uploaded_file, caption="Preview", width=300)
-
-if st.button("Run Focus Group"):
-    if not api_key:
-        st.error("No API Key found. Please set it in Streamlit Secrets or the sidebar.")
-    elif not input_payload:
-        st.error("Please enter text or upload a file.")
-    else:
-        with st.spinner("The focus group is reviewing your submission..."):
-            data = run_focus_group(api_key, input_payload, input_type)
-            
-            st.divider()
-            
-            # Display Results
-            cols = st.columns(2)
-            for i, (name, res) in enumerate(data.items()):
-                with cols[i % 2]:
-                    st.subheader(f"{name}")
-                    
-                    score = res['score']
-                    # logic to determine color
-                    if score < 3:
-                        color = "red"
-                    elif score == 3:
-                        color = "orange"
-                    else:
-                        color = "green"
-                        
-                    # This is the line that was breaking:
-                    st.markdown(f"**Resonance Score:** :{color}[{score:.1f}/5]")
-                    
-                    st.info(f"_{res['text']}_")
-                    st.divider()
+                            {"type": "text", "text": f"You are this person: {bio}.
