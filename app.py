@@ -60,57 +60,82 @@ def run_focus_group(api_key, proposal_text):
     
     results = {}
     
+    # Create a progress bar in the UI
+    progress_text = "Interviewing the focus group (30 iterations per persona)..."
+    my_bar = st.progress(0, text=progress_text)
+    
+    total_personas = len(PERSONAS)
+    current_step = 0
+    
     # 2. Loop through each Persona
     for name, bio in PERSONAS.items():
-        # Step A: Ask the Persona to "Think Out Loud"
-        prompt = f"""
-        You are this person: "{bio}"
         
-        Read this proposal from a church: "{proposal_text}"
+        scores = []
+        texts = [] # We keep the texts just to show a sample later
         
-        Write 2-3 sentences about your honest, gut reaction. 
-        Don't be polite. Be real. How does this make you feel?
-        """
+        # --- THE SCIENTIFIC LOOP (30 Runs) ---
+        ITERATIONS = 30 
         
-        completion = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "You are a focus group participant."},
-                      {"role": "user", "content": prompt}]
-        )
-        reaction_text = completion.choices[0].message.content
+        for i in range(ITERATIONS):
+            # Step A: Ask the Persona to "Think Out Loud"
+            prompt = f"""
+            You are this person: "{bio}"
+            
+            Read this proposal from a church: "{proposal_text}"
+            
+            Write 2-3 sentences about your honest, gut reaction. 
+            Don't be polite. Be real. How does this make you feel?
+            """
+            
+            completion = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": "You are a focus group participant."},
+                          {"role": "user", "content": prompt}]
+            )
+            reaction_text = completion.choices[0].message.content
+            
+            # Step B: Score the Reaction
+            reaction_embedding = get_embedding(reaction_text, client)
+            similarities = cosine_similarity([reaction_embedding], anchor_embeddings)[0]
+            best_match_index = np.argmax(similarities)
+            score = best_match_index + 1  # Convert 0-4 index to 1-5 score
+            
+            scores.append(score)
+            texts.append(reaction_text)
         
-        # Step B: Score the Reaction (Math)
-        reaction_embedding = get_embedding(reaction_text, client)
+        # Calculate the Scientific Average for this Persona
+        avg_score = sum(scores) / len(scores)
         
-        # Calculate similarity to all 5 anchors
-        similarities = cosine_similarity([reaction_embedding], anchor_embeddings)[0]
+        # Save the average score and just the FIRST text response (as a sample for the UI)
+        results[name] = {"text": texts[0], "score": avg_score}
         
-        # The "Score" is a weighted average of the anchor values (1-5) based on similarity
-        # This is a simplified version of the paper's math for stability
-        best_match_index = np.argmax(similarities)
-        score = best_match_index + 1  # Convert 0-4 index to 1-5 score
+        # Update progress bar
+        current_step += 1
+        my_bar.progress(current_step / total_personas, text=f"Finished interviewing {name}...")
         
-        results[name] = {"text": reaction_text, "score": score}
-        
+    my_bar.empty() # Clear the progress bar when done
     return results
 
 # --- THE APP INTERFACE ---
 st.title("⛪ Ambo Press Focus Group")
 st.markdown("Test your book titles, sermon series, and emails against **4 Synthetic Personas**.")
 
-with st.sidebar:
-    st.header("Setup")
-    api_key = st.text_input("Enter OpenAI API Key", type="password")
-    st.info("You need an OpenAI API Key to run the focus group.")
+# 1. Try to get key from Secrets (Safe way)
+if "OPENAI_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENAI_API_KEY"]
+# 2. If not found, ask in Sidebar (Fallback)
+else:
+    api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
-proposal = st.text_area("What do you want to test?", height=150, placeholder="e.g., Book Title: 'The Holy Grind: Finding God in the 9-to-5'")
+proposal = st.text_area("What do you want to test?", height=150, placeholder="e.g., Book Title: 'The Holy Grind'")
 
 if st.button("Run Focus Group"):
     if not api_key:
-        st.error("Please enter an API Key in the sidebar.")
+        st.error("No API Key found. Please set it in Streamlit Secrets or the sidebar.")
     elif not proposal:
         st.error("Please enter some text to test.")
     else:
+        # ... rest of your code ...
         with st.spinner("The focus group is reviewing your idea..."):
             data = run_focus_group(api_key, proposal)
             
