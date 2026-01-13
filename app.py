@@ -3,13 +3,12 @@ import numpy as np
 import base64
 import time
 from openai import OpenAI
-from sklearn.metrics.pairwise import cosine_similarity
 from pypdf import PdfReader
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Ambo Press Focus Group", page_icon="⛪", layout="wide")
 
-# --- THE PERSONAS (Based on your 12 Interviews) ---
+# --- THE PERSONAS ---
 PERSONAS = {
     "Anchored Traditionalist (The Alejandra/Felipe Profile)": (
         "I am a young adult who chose the Episcopal Church for 'Inclusive Orthodoxy.' "
@@ -41,7 +40,7 @@ PERSONAS = {
     )
 }
 
-# --- THE SCALE (Reference Anchors) ---
+# --- THE SCALE ---
 ANCHORS = [
     "I hate this. It feels manipulative, irrelevant, or offensive.",  # Score 1
     "I dislike this. It doesn't resonate with me.",                  # Score 2
@@ -51,6 +50,10 @@ ANCHORS = [
 ]
 
 # --- HELPER FUNCTIONS ---
+
+def calculate_similarity(vec1, vec2):
+    """Manual Cosine Similarity (Replaces scikit-learn dependency)"""
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
 
 def get_embedding(text, client):
     """Safe embedding wrapper with retry logic"""
@@ -64,7 +67,7 @@ def get_embedding(text, client):
             response = client.embeddings.create(input=[text], model="text-embedding-3-small")
             return response.data[0].embedding
         except:
-            return None # Return None if it fails twice
+            return None 
 
 def extract_text_from_pdf(uploaded_file):
     try:
@@ -79,7 +82,7 @@ def extract_text_from_pdf(uploaded_file):
 def run_focus_group(api_key, input_data, input_type, guidance=""):
     client = OpenAI(api_key=api_key)
     
-    # 1. Embed the Anchors (BATCHED for safety)
+    # 1. Embed the Anchors
     try:
         anchor_response = client.embeddings.create(
             input=ANCHORS, 
@@ -92,7 +95,6 @@ def run_focus_group(api_key, input_data, input_type, guidance=""):
     
     results = {}
     
-    # Updated text to reflect the longer wait time
     progress_text = "Running deep analysis (30 iterations per persona)... This may take 2-3 minutes."
     my_bar = st.progress(0, text=progress_text)
     
@@ -110,7 +112,7 @@ def run_focus_group(api_key, input_data, input_type, guidance=""):
         
         for i in range(ITERATIONS):
             
-            # Construct Prompt with User Guidance
+            # Construct Prompt
             specific_instruction = f"Additional Instruction from Moderator: {guidance}" if guidance else ""
             
             if input_type == "text":
@@ -163,18 +165,19 @@ def run_focus_group(api_key, input_data, input_type, guidance=""):
                 except Exception as e:
                     time.sleep(2) 
             
-            # Embed the reaction
+            # Embed the reaction & Calculate Score Manually
             if reaction_text != "Error":
                 reaction_embedding = get_embedding(reaction_text, client)
                 if reaction_embedding:
-                    similarities = cosine_similarity([reaction_embedding], anchor_embeddings)[0]
-                    best_match_index = np.argmax(similarities)
+                    # MANUAL MATH (No Scikit-Learn required)
+                    sims = [calculate_similarity(reaction_embedding, anchor) for anchor in anchor_embeddings]
+                    best_match_index = np.argmax(sims)
                     score = best_match_index + 1
                     
                     scores.append(score)
                     texts.append(reaction_text)
             
-            # PAUSE: Increased to 1.0 second to handle the higher volume safely
+            # PAUSE
             time.sleep(1.0)
         
         if scores:
@@ -193,3 +196,72 @@ def run_focus_group(api_key, input_data, input_type, guidance=""):
 
 st.title("⛪ Ambo Press Focus Group")
 st.markdown("Test your book titles, sermon series, and flyers against **4 Synthetic Personas**.")
+
+# 1. API Key Check
+if "OPENAI_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENAI_API_KEY"]
+else:
+    api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
+
+# 2. Input Method
+tab1, tab2 = st.tabs(["📝 Text Input", "Pg Upload File"])
+
+input_payload = None
+input_type = "text"
+
+with tab1:
+    text_input = st.text_area("Paste text to test:", height=150, placeholder="e.g., Book Title: 'The Holy Grind'")
+    if text_input:
+        input_payload = text_input
+        input_type = "text"
+
+with tab2:
+    uploaded_file = st.file_uploader("Upload an Image or PDF", type=['png', 'jpg', 'jpeg', 'pdf'])
+    if uploaded_file:
+        if uploaded_file.type == "application/pdf":
+            st.info("Extracting text from PDF...")
+            input_payload = extract_text_from_pdf(uploaded_file)
+            input_type = "text" 
+            st.success("PDF Text Extracted!")
+            with st.expander("View Extracted Text"):
+                st.write(input_payload[:500] + "...")
+        else:
+            input_payload = uploaded_file
+            input_type = "image"
+            st.image(uploaded_file, caption="Preview", width=300)
+
+# 3. Moderator Guidance
+st.divider()
+guidance = st.text_input("Moderator Guidance (Optional)", placeholder="e.g., 'Focus on the second paragraph' or 'Ignore the color scheme'")
+
+# 4. Run Button
+if st.button("Run Focus Group (Deep Analysis)", type="primary"):
+    if not api_key:
+        st.error("No API Key found. Please set it in Streamlit Secrets or the sidebar.")
+    elif not input_payload:
+        st.error("Please enter text or upload a file first.")
+    else:
+        with st.spinner("Running 30 simulations per persona. This will take a few minutes..."):
+            data = run_focus_group(api_key, input_payload, input_type, guidance)
+            
+            st.divider()
+            
+            # Display Results
+            cols = st.columns(2)
+            for i, (name, res) in enumerate(data.items()):
+                with cols[i % 2]:
+                    with st.container():
+                        st.subheader(f"{name}")
+                        
+                        score = res['score']
+                        if score < 2.5:
+                            color = "red"
+                        elif score < 3.5:
+                            color = "orange"
+                        else:
+                            color = "green"
+                            
+                        st.markdown(f"### Resonance: :{color}[{score:.1f}/5]")
+                        
+                        st.info(f"_{res['text']}_")
+                        st.divider()
