@@ -130,8 +130,136 @@ def run_focus_group(api_key, input_data, input_type, guidance=""):
                 
             elif input_type == "image":
                 base64_image = base64.b64encode(input_data.getvalue()).decode('utf-8')
+                
+                # FIXED: Breaking this long string into a variable first to avoid Syntax Error
+                img_prompt = (
+                    f"You are this person: {bio}. "
+                    f"Look at this image. {specific_instruction} "
+                    "Write 2-3 sentences about your honest, gut reaction. Don't be polite. Be real."
+                )
+
                 messages = [
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": f"You are this person: {bio}.
+                            {"type": "text", "text": img_prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }
+                ]
+
+            # --- RETRY LOGIC ---
+            max_retries = 3
+            reaction_text = "Error"
+            
+            for attempt in range(max_retries):
+                try:
+                    completion = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages
+                    )
+                    reaction_text = completion.choices[0].message.content
+                    break 
+                except Exception as e:
+                    time.sleep(2) 
+            
+            # Embed the reaction
+            if reaction_text != "Error":
+                reaction_embedding = get_embedding(reaction_text, client)
+                if reaction_embedding:
+                    similarities = cosine_similarity([reaction_embedding], anchor_embeddings)[0]
+                    best_match_index = np.argmax(similarities)
+                    score = best_match_index + 1
+                    
+                    scores.append(score)
+                    texts.append(reaction_text)
+            
+            # PAUSE to prevent rate limit
+            time.sleep(0.5)
+        
+        if scores:
+            avg_score = sum(scores) / len(scores)
+            results[name] = {"text": texts[0], "score": avg_score}
+        else:
+            results[name] = {"text": "Could not generate response.", "score": 0}
+        
+        current_step += 1
+        my_bar.progress(current_step / total_personas, text=f"Finished interviewing {name}...")
+        
+    my_bar.empty()
+    return results
+
+# --- THE APP INTERFACE ---
+
+st.title("⛪ Ambo Press Focus Group")
+st.markdown("Test your book titles, sermon series, and flyers against **4 Synthetic Personas**.")
+
+# 1. API Key Check
+if "OPENAI_API_KEY" in st.secrets:
+    api_key = st.secrets["OPENAI_API_KEY"]
+else:
+    api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
+
+# 2. Input Method
+tab1, tab2 = st.tabs(["📝 Text Input", "Pg Upload File"])
+
+input_payload = None
+input_type = "text"
+
+with tab1:
+    text_input = st.text_area("Paste text to test:", height=150, placeholder="e.g., Book Title: 'The Holy Grind'")
+    if text_input:
+        input_payload = text_input
+        input_type = "text"
+
+with tab2:
+    uploaded_file = st.file_uploader("Upload an Image or PDF", type=['png', 'jpg', 'jpeg', 'pdf'])
+    if uploaded_file:
+        if uploaded_file.type == "application/pdf":
+            st.info("Extracting text from PDF...")
+            input_payload = extract_text_from_pdf(uploaded_file)
+            input_type = "text" 
+            st.success("PDF Text Extracted!")
+            with st.expander("View Extracted Text"):
+                st.write(input_payload[:500] + "...")
+        else:
+            input_payload = uploaded_file
+            input_type = "image"
+            st.image(uploaded_file, caption="Preview", width=300)
+
+# 3. Moderator Guidance (New Feature)
+st.divider()
+guidance = st.text_input("Moderator Guidance (Optional)", placeholder="e.g., 'Focus on the second paragraph' or 'Ignore the color scheme'")
+
+# 4. Run Button
+if st.button("Run Focus Group", type="primary"):
+    if not api_key:
+        st.error("No API Key found. Please set it in Streamlit Secrets or the sidebar.")
+    elif not input_payload:
+        st.error("Please enter text or upload a file first.")
+    else:
+        with st.spinner("The focus group is reviewing your submission..."):
+            data = run_focus_group(api_key, input_payload, input_type, guidance)
+            
+            st.divider()
+            
+            # Display Results
+            cols = st.columns(2)
+            for i, (name, res) in enumerate(data.items()):
+                with cols[i % 2]:
+                    # Card-like container
+                    with st.container():
+                        st.subheader(f"{name}")
+                        
+                        score = res['score']
+                        if score < 2.5:
+                            color = "red"
+                        elif score < 3.5:
+                            color = "orange"
+                        else:
+                            color = "green"
+                            
+                        st.markdown(f"### Resonance: :{color}[{score:.1f}/5]")
+                        
+                        st.info(f"_{res['text']}_")
+                        st.divider()
