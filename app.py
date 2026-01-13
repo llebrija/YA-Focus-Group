@@ -83,7 +83,7 @@ def run_focus_group(api_key, input_data, input_type="text"):
         texts = [] 
         
         # --- THE SCIENTIFIC LOOP (Reduced to 10 for safety) ---
-        ITERATIONS = 30  # Reduced from 30 to 10 to prevent crashing Tier 1 accounts
+        ITERATIONS = 10  # Reduced from 30 to 10 to prevent crashing Tier 1 accounts
         
         for i in range(ITERATIONS):
             
