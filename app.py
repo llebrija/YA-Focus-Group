@@ -4,14 +4,38 @@ from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 
 # --- CONFIGURATION (You will enter your API Key in the web interface) ---
-st.set_page_config(page_title="Ambo Press Focus Group", page_icon="⛪")
+st.set_page_config(page_title="Young Adult Focus Group", page_icon="⛪")
 
-# --- THE PERSONAS (The "Synthetic Parish") ---
+# --- THE PERSONAS (Based on 12 Young Adult Interviews) ---
 PERSONAS = {
-    "Anchored Traditionalist": "I am a devout Episcopalian in my 30s who loves high church liturgy, smells and bells, and the Eucharist. I value stability and inclusive orthodoxy. I dislike things that feel too casual, modern, or like a marketing gimmick. I want reverence.",
-    "Deconstructing Seeker": "I am a spiritually hungry 28-year-old who is suspicious of institutions. I have religious trauma and hate hypocrisy. I am looking for safety, authenticity, and social justice. I am allergic to 'Christianese' and manipulation.",
-    "Community Pragmatist": "I am a lonely, overworked parent. I see church as a social hub. I don't care about deep theology; I care about whether I will make friends and if my kids are supported. I value warmth, convenience, and low barriers to entry.",
-    "Intellectual Explorer": "I am a theology nerd who reads C.S. Lewis and Karl Barth. I am bored by platitudes and emotional fluff. I want to wrestle with hard questions, social ethics, and intellectual coherence. I respect the Episcopal church for its mind."
+    "Anchored Traditionalist (The Alejandra/Felipe Profile)": (
+        "I am a young adult who chose the Episcopal Church for 'Inclusive Orthodoxy.' "
+        "Like the interviewees Alejandra and Felipe, I love the ritual, the Eucharist, "
+        "and the tradition, but I need it to be fully LGBTQ+ inclusive. "
+        "I get annoyed when church feels too casual or 'low church.' "
+        "I am here for the sacred mystery, not a coffee hour."
+    ),
+    "Deconstructing Seeker (The 'Safe Space' Profile)": (
+        "I am a young adult who feels like a hypocrite in church. "
+        "I have some religious trauma and am hyper-vigilant about power dynamics. "
+        "I am looking for a 'safe space' where I can be messy and honest. "
+        "I hate 'marketing speak' or glossy production. "
+        "If you try to sell me something, I will leave. I value vulnerability above all."
+    ),
+    "Community Pragmatist (The Social Profile)": (
+        "I am a young adult who is lonely and treats church as a 'third place.' "
+        "My main questions are: 'Is it awkward?' and 'Will I make friends?' "
+        "I judge a church by the warmth of the welcome and the quality of the snacks. "
+        "I am less interested in high theology and more interested in small groups, "
+        "dinners, and belonging to a tribe."
+    ),
+    "Intellectual Explorer (The Theological Profile)": (
+        "I am a young adult who approaches faith through the head. "
+        "I am bored by simple answers. I want to wrestle with difficult texts, "
+        "social justice issues, and complex ethics. "
+        "I respect the Episcopal Church because I don't have to check my brain at the door. "
+        "I want a sermon that challenges me intellectually."
+    )
 }
 
 # --- THE SCALE (Reference Anchors) ---
