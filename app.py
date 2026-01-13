@@ -202,5 +202,16 @@ if st.button("Run Focus Group"):
                     st.subheader(f"{name}")
                     
                     score = res['score']
-                    color = "red" if score < 3 else "orange" if score == 3 else "green"
-                    st.markdown(f"**
+                    # logic to determine color
+                    if score < 3:
+                        color = "red"
+                    elif score == 3:
+                        color = "orange"
+                    else:
+                        color = "green"
+                        
+                    # This is the line that was breaking:
+                    st.markdown(f"**Resonance Score:** :{color}[{score:.1f}/5]")
+                    
+                    st.info(f"_{res['text']}_")
+                    st.divider()
