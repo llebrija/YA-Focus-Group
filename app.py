@@ -1,12 +1,13 @@
 import streamlit as st
 import numpy as np
 import base64
+import time  # <--- THIS IS THE NEW ADDITION
 from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
 from pypdf import PdfReader
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="TRI Young Adult Focus Group", page_icon="⛪")
+st.set_page_config(page_title="TRI YA Focus Group", page_icon="⛪")
 
 # --- THE PERSONAS (Based on 12 Young Adult Interviews) ---
 PERSONAS = {
@@ -61,10 +62,6 @@ def extract_text_from_pdf(uploaded_file):
         text += page.extract_text()
     return text
 
-import time  # <--- Add this import at the very top of your file with the other imports!
-
-# ... (keep your existing imports and configuration) ...
-
 def run_focus_group(api_key, input_data, input_type="text"):
     client = OpenAI(api_key=api_key)
     
@@ -85,8 +82,8 @@ def run_focus_group(api_key, input_data, input_type="text"):
         scores = []
         texts = [] 
         
-        # --- THE SCIENTIFIC LOOP (Reduced to 10 for safety, adjust up if you have higher tier) ---
-        ITERATIONS = 10  # Reduced from 30 to 10 to prevent crashing Tier 1 accounts
+        # --- THE SCIENTIFIC LOOP (Reduced to 10 for safety) ---
+        ITERATIONS = 30  # Reduced from 30 to 10 to prevent crashing Tier 1 accounts
         
         for i in range(ITERATIONS):
             
@@ -206,7 +203,4 @@ if st.button("Run Focus Group"):
                     
                     score = res['score']
                     color = "red" if score < 3 else "orange" if score == 3 else "green"
-                    st.markdown(f"**Resonance Score:** :{color}[{score:.1f}/5]")
-                    
-                    st.info(f"_{res['text']}_")
-                    st.divider()
+                    st.markdown(f"**
