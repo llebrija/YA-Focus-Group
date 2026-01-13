@@ -61,6 +61,10 @@ def extract_text_from_pdf(uploaded_file):
         text += page.extract_text()
     return text
 
+import time  # <--- Add this import at the very top of your file with the other imports!
+
+# ... (keep your existing imports and configuration) ...
+
 def run_focus_group(api_key, input_data, input_type="text"):
     client = OpenAI(api_key=api_key)
     
@@ -69,7 +73,7 @@ def run_focus_group(api_key, input_data, input_type="text"):
     
     results = {}
     
-    progress_text = "Interviewing the focus group (30 iterations per persona)..."
+    progress_text = "Interviewing the focus group (Running safely to avoid rate limits)..."
     my_bar = st.progress(0, text=progress_text)
     
     total_personas = len(PERSONAS)
@@ -81,8 +85,8 @@ def run_focus_group(api_key, input_data, input_type="text"):
         scores = []
         texts = [] 
         
-        # --- THE SCIENTIFIC LOOP (30 Runs) ---
-        ITERATIONS = 30
+        # --- THE SCIENTIFIC LOOP (Reduced to 10 for safety, adjust up if you have higher tier) ---
+        ITERATIONS = 10  # Reduced from 30 to 10 to prevent crashing Tier 1 accounts
         
         for i in range(ITERATIONS):
             
@@ -97,7 +101,6 @@ def run_focus_group(api_key, input_data, input_type="text"):
                 messages = [{"role": "user", "content": prompt_content}]
                 
             elif input_type == "image":
-                # For images, we send the image + the persona bio
                 base64_image = base64.b64encode(input_data.getvalue()).decode('utf-8')
                 messages = [
                     {
@@ -109,11 +112,21 @@ def run_focus_group(api_key, input_data, input_type="text"):
                     }
                 ]
 
-            completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages
-            )
-            reaction_text = completion.choices[0].message.content
+            # --- SAFETY BLOCK: Retry if Rate Limited ---
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    completion = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=messages
+                    )
+                    reaction_text = completion.choices[0].message.content
+                    break # Success! Exit the retry loop
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(2) # Wait 2 seconds before retrying
+                    else:
+                        reaction_text = "Error: Could not get response."
             
             # Score the Reaction
             reaction_embedding = get_embedding(reaction_text, client)
@@ -123,6 +136,10 @@ def run_focus_group(api_key, input_data, input_type="text"):
             
             scores.append(score)
             texts.append(reaction_text)
+            
+            # --- PAUSE ---
+            # Sleep for 0.5 seconds between every single request to stay under the speed limit
+            time.sleep(0.5)
         
         avg_score = sum(scores) / len(scores)
         results[name] = {"text": texts[0], "score": avg_score}
