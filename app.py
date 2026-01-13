@@ -117,7 +117,7 @@ def run_focus_group(api_key, proposal_text):
     return results
 
 # --- THE APP INTERFACE ---
-st.title("⛪ Ambo Press Focus Group")
+st.title("⛪ TRI Young Adult Focus Group")
 st.markdown("Test your book titles, sermon series, and emails against **4 Synthetic Personas**.")
 
 # 1. Try to get key from Secrets (Safe way)
