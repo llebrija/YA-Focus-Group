@@ -2,3 +2,4 @@ streamlit
 openai
 scikit-learn
 pypdf
+numpy
