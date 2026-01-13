@@ -1,9 +1,11 @@
 import streamlit as st
 import numpy as np
+import base64
 from openai import OpenAI
 from sklearn.metrics.pairwise import cosine_similarity
+from pypdf import PdfReader
 
-# --- CONFIGURATION (You will enter your API Key in the web interface) ---
+# --- CONFIGURATION ---
 st.set_page_config(page_title="TRI Young Adult Focus Group", page_icon="⛪")
 
 # --- THE PERSONAS (Based on 12 Young Adult Interviews) ---
@@ -52,7 +54,14 @@ def get_embedding(text, client):
     response = client.embeddings.create(input=text, model="text-embedding-3-small")
     return response.data[0].embedding
 
-def run_focus_group(api_key, proposal_text):
+def extract_text_from_pdf(uploaded_file):
+    pdf_reader = PdfReader(uploaded_file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
+
+def run_focus_group(api_key, input_data, input_type="text"):
     client = OpenAI(api_key=api_key)
     
     # 1. Embed the Anchors (The Ruler)
@@ -60,7 +69,6 @@ def run_focus_group(api_key, proposal_text):
     
     results = {}
     
-    # Create a progress bar in the UI
     progress_text = "Interviewing the focus group (30 iterations per persona)..."
     my_bar = st.progress(0, text=progress_text)
     
@@ -71,87 +79,117 @@ def run_focus_group(api_key, proposal_text):
     for name, bio in PERSONAS.items():
         
         scores = []
-        texts = [] # We keep the texts just to show a sample later
+        texts = [] 
         
         # --- THE SCIENTIFIC LOOP (30 Runs) ---
-        ITERATIONS = 30 
+        ITERATIONS = 30
         
         for i in range(ITERATIONS):
-            # Step A: Ask the Persona to "Think Out Loud"
-            prompt = f"""
-            You are this person: "{bio}"
             
-            Read this proposal from a church: "{proposal_text}"
-            
-            Write 2-3 sentences about your honest, gut reaction. 
-            Don't be polite. Be real. How does this make you feel?
-            """
-            
+            # Prepare the Prompt based on Input Type
+            if input_type == "text":
+                prompt_content = f"""
+                You are this person: "{bio}"
+                Read this proposal from a church: "{input_data}"
+                Write 2-3 sentences about your honest, gut reaction. 
+                Don't be polite. Be real. How does this make you feel?
+                """
+                messages = [{"role": "user", "content": prompt_content}]
+                
+            elif input_type == "image":
+                # For images, we send the image + the persona bio
+                base64_image = base64.b64encode(input_data.getvalue()).decode('utf-8')
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": f"You are this person: {bio}. Look at this image from a church. Write 2-3 sentences about your honest, gut reaction. Don't be polite. Be real."},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]
+                    }
+                ]
+
             completion = client.chat.completions.create(
                 model="gpt-4o-mini",
-                messages=[{"role": "system", "content": "You are a focus group participant."},
-                          {"role": "user", "content": prompt}]
+                messages=messages
             )
             reaction_text = completion.choices[0].message.content
             
-            # Step B: Score the Reaction
+            # Score the Reaction
             reaction_embedding = get_embedding(reaction_text, client)
             similarities = cosine_similarity([reaction_embedding], anchor_embeddings)[0]
             best_match_index = np.argmax(similarities)
-            score = best_match_index + 1  # Convert 0-4 index to 1-5 score
+            score = best_match_index + 1
             
             scores.append(score)
             texts.append(reaction_text)
         
-        # Calculate the Scientific Average for this Persona
         avg_score = sum(scores) / len(scores)
-        
-        # Save the average score and just the FIRST text response (as a sample for the UI)
         results[name] = {"text": texts[0], "score": avg_score}
         
-        # Update progress bar
         current_step += 1
         my_bar.progress(current_step / total_personas, text=f"Finished interviewing {name}...")
         
-    my_bar.empty() # Clear the progress bar when done
+    my_bar.empty()
     return results
 
 # --- THE APP INTERFACE ---
-st.title("⛪ TRI Young Adult Focus Group")
-st.markdown("Test your book titles, sermon series, and emails against **4 Synthetic Personas**.")
+st.title("⛪ TRI YA Focus Group")
+st.markdown("Test your book titles, sermon series, and flyers against **4 Synthetic Personas**.")
 
-# 1. Try to get key from Secrets (Safe way)
+# 1. API Key Check
 if "OPENAI_API_KEY" in st.secrets:
     api_key = st.secrets["OPENAI_API_KEY"]
-# 2. If not found, ask in Sidebar (Fallback)
 else:
     api_key = st.sidebar.text_input("Enter OpenAI API Key", type="password")
 
-proposal = st.text_area("What do you want to test?", height=150, placeholder="e.g., Book Title: 'The Holy Grind'")
+# 2. Input Method (Tabs)
+tab1, tab2 = st.tabs(["📝 Text Input", "Pg Upload File"])
+
+input_payload = None
+input_type = "text"
+
+with tab1:
+    text_input = st.text_area("Paste text to test:", height=150, placeholder="e.g., Book Title: 'The Holy Grind'")
+    if text_input:
+        input_payload = text_input
+        input_type = "text"
+
+with tab2:
+    uploaded_file = st.file_uploader("Upload an Image or PDF", type=['png', 'jpg', 'jpeg', 'pdf'])
+    if uploaded_file:
+        if uploaded_file.type == "application/pdf":
+            st.info("Extracting text from PDF...")
+            input_payload = extract_text_from_pdf(uploaded_file)
+            input_type = "text" # Treat extracted PDF content as text
+            st.success("PDF Text Extracted!")
+            with st.expander("View Extracted Text"):
+                st.write(input_payload[:500] + "...")
+        else:
+            input_payload = uploaded_file
+            input_type = "image"
+            st.image(uploaded_file, caption="Preview", width=300)
 
 if st.button("Run Focus Group"):
     if not api_key:
         st.error("No API Key found. Please set it in Streamlit Secrets or the sidebar.")
-    elif not proposal:
-        st.error("Please enter some text to test.")
+    elif not input_payload:
+        st.error("Please enter text or upload a file.")
     else:
-        # ... rest of your code ...
-        with st.spinner("The focus group is reviewing your idea..."):
-            data = run_focus_group(api_key, proposal)
+        with st.spinner("The focus group is reviewing your submission..."):
+            data = run_focus_group(api_key, input_payload, input_type)
             
             st.divider()
             
             # Display Results
             cols = st.columns(2)
-            
             for i, (name, res) in enumerate(data.items()):
                 with cols[i % 2]:
                     st.subheader(f"{name}")
                     
-                    # Color code the score
                     score = res['score']
                     color = "red" if score < 3 else "orange" if score == 3 else "green"
-                    st.markdown(f"**Resonance Score:** :{color}[{score}/5]")
+                    st.markdown(f"**Resonance Score:** :{color}[{score:.1f}/5]")
                     
                     st.info(f"_{res['text']}_")
                     st.divider()
